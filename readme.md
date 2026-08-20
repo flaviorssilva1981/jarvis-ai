@@ -1,17 +1,20 @@
-# ⚙️ MARK L (50)
-### The Ultimate Cross-Platform Personal AI Assistant — By FatihMakes
+# JARVIS — Personal AI Assistant
 
-> 📺 **[Watch the full setup video on YouTube](https://www.youtube.com/@FatihMakes)**
+[![JARVIS — I Built My Own AI Assistant](assets/jarvis-youtube-thumbnail.png)](https://www.youtube.com/watch?v=VaxTmoVI4UU)
 
-A real-time voice AI that can hear, see, understand, and control your computer — on any OS. Supports Windows, macOS, and Linux. Built on the Gemini Live API for native audio streaming, delivering zero subscriptions and total digital autonomy.
+> 📺 **[Watch the demo on YouTube — JARVIS: I Built My Own AI Assistant](https://www.youtube.com/watch?v=VaxTmoVI4UU)**
+
+A real-time voice AI that can hear, see, understand, and control your computer — on Windows, macOS, and Linux. Built on the Gemini Live API for native audio streaming, with a JARVIS-style HUD interface.
+
+**Built by [Flavio Silva](https://github.com/flaviorssilva1981)** — DevOps engineer. Calendar, mail, weather, news briefings, and automation workflows.
 
 ---
 
 ## ✨ Overview
 
-MARK L is where the assistant stops being a tool and starts being a presence. It remembers yesterday's conversation, watches the topics you care about, and speaks first when it has something worth saying. The goal of this build was continuity — JARVIS should feel like it never fully left, even after you close it.
+JARVIS is a cross-platform personal AI assistant with a futuristic HUD UI. It remembers context across sessions, delivers morning briefings, and responds by voice or text. On macOS, it includes real **Calendar.app**, **Mail.app**, and **Open-Meteo weather** integrations — no hallucinated calendar or inbox data.
 
-It's not just an assistant — it's an extension of your digital life.
+Use it for daily briefings, DevOps questions, CI/CD pipeline help, automation tasks, and hands-free computer control.
 
 ---
 
@@ -20,89 +23,58 @@ It's not just an assistant — it's an extension of your digital life.
 ### Core Features
 | Feature | Description |
 |---|---|
-| 🎙️ Real-time Voice | Ultra-low latency conversation in any language via Gemini Live API |
+| 🎙️ Real-time Voice | Ultra-low latency conversation via Gemini Live API |
 | 🖥️ System Control | Launch apps, adjust volume/brightness, WiFi, shortcuts, power — all by voice |
 | 🧩 Autonomous Tasks | High-level planning for complex multi-step goals via agent mode |
-| 👁️ Visual Awareness | Real-time screen capture and webcam vision piped into your main Gemini session |
-| 🧠 Persistent Memory | Deeply remembers projects, preferences, and personal context across sessions |
+| 👁️ Visual Awareness | Real-time screen capture and webcam vision piped into your Gemini session |
+| 🧠 Persistent Memory | Remembers projects, preferences, and personal context across sessions |
 | ⌨️ Hybrid Input | Seamlessly switch between keyboard typing and voice commands |
 | 🌅 Morning Briefing | On first boot: greets you, reads the time, recaps yesterday, and fetches live news |
-| 🔔 Proactive 2.0 | Time-aware, context-aware check-ins — knows the time of day, your projects, and what you've been discussing |
-| 🗓️ Session Memory | Summarises each conversation and mentions it naturally next morning — consumed after use, never repeats |
-| 👁️‍🗨️ Background Monitoring | User-configured topic watching — checks for new headlines once a day and alerts naturally |
-| 📊 Hardware Monitoring | Continuous CPU, RAM, GPU and temperature telemetry with localized voice alerts |
-| 🌤️ Weather Report | Live weather data for your city, personalized from memory |
-| 🗺️ Dynamic Content Panel | Scrollable display layer beneath the HUD that renders web results, news, and search data |
-| 🔍 Multi-Mode Web Search | `news` / `research` / `price` / `compare` / `search` — Gemini Grounded first, DDG fallback |
-| ⏰ Smart Reminders | OS-native scheduled notifications (Windows Task Scheduler / macOS LaunchAgent / Linux systemd) |
+| 🔔 Proactive 2.0 | Time-aware, context-aware check-ins |
+| 🗓️ Session Memory | Summarises each conversation and mentions it naturally next morning |
+| 👁️‍🗨️ Background Monitoring | User-configured topic watching — daily headline checks |
+| 📊 Hardware Monitoring | CPU, RAM, GPU and temperature telemetry with voice alerts |
+| 🌤️ Weather Report | Live weather via Open-Meteo (°C, km/h) — spoken and shown in the HUD |
+| 🗓️ Calendar (macOS) | Reads real events from Calendar.app via AppleScript |
+| 📧 Mail Inbox (macOS) | Reads recent inbox messages from Mail.app |
+| 🗺️ Dynamic Content Panel | Scrollable display beneath the HUD for web results, news, and weather |
+| 🔍 Multi-Mode Web Search | `news` / `research` / `price` / `compare` / `search` — Gemini + DDG fallback |
+| ⏰ Smart Reminders | OS-native scheduled notifications |
 | ✈️ Flight Finder | Live flight price and availability lookup |
-| 🎮 Game Updater | Checks and triggers game updates on Steam and Epic Games on demand |
+| 🎮 Game Updater | Checks and triggers game updates on Steam and Epic Games |
 | 📂 File Processor | Read, summarize, and answer questions about local files |
 | 💻 Code Helper | Inline code review, debugging, and generation |
-| 🌐 Browser Control | Open URLs, navigate tabs, and interact with the browser by voice |
+| 🧑‍💻 Dev Agent | DevOps / automation task agent (Ansible, CI/CD, scripting) |
+| 🌐 Browser Control | Open URLs, navigate tabs, compose email in Gmail |
 | 📨 Send Message | Compose and send messages through WhatsApp, Telegram, and more |
 | 🎬 YouTube Control | Search, play, and control YouTube playback by voice |
 | 🖱️ Desktop Control | Taskbar, window management, and desktop-level operations |
-| 🧑‍💻 Silent Language Memory | Detects spoken language on first use — all future sessions adapt automatically |
 | 📱 Remote Dashboard | Control the assistant from your phone via QR code pairing |
-| ⚡ Auto-Start on Boot | Registers with the OS startup system (registry / LaunchAgent / .desktop) |
+| ⚡ Auto-Start on Boot | Registers with the OS startup system |
 | 📋 Clipboard Intelligence | Copy any text → floating panel with Translate / Summarise / Explain / Fix |
-| 🎨 Assistant Customization | Change the assistant name and your name from the UI — takes effect immediately |
-
----
-
-## 🆕 What's New in Mark L
-
-### 🗓️ Session Memory — JARVIS Remembers Yesterday
-At the end of every session, JARVIS generates a 1-2 sentence summary of what was discussed and saves it to memory. The next morning, it's mentioned naturally in the briefing:
-> *"Good morning, sir — it's 09:15. Yesterday you were working on the Mark L background monitoring feature. Fetching today's headlines now."*
-
-The summary is consumed immediately after use — it never repeats in future briefings and adds zero long-term bloat to memory.
-
-### 👁️‍🗨️ Background Monitoring — JARVIS Watches While You're Away
-Tell JARVIS to monitor any topic and it checks for new developments once a day using DuckDuckGo news. When a headline changes, it reports back naturally in your language:
-> *"Efendim, takip ettiğiniz yapay zeka haberlerinde bir gelişme var: Google yeni bir model duyurdu."*
-
-Fully opt-in — JARVIS monitors nothing without being explicitly asked. Crypto, financial, and trading topics are blocked at the code level regardless of what is requested. Same headline never triggers twice.
-
-### 🔔 Proactive System 2.0 — Context-Aware, Time-Aware, Non-Repetitive
-The proactive engine was rebuilt from the ground up. Instead of a generic check-in after 15 minutes of silence, JARVIS now:
-- Knows the **time of day** — morning tone differs from evening tone
-- Knows your **active projects** from memory and can ask how something is going
-- Knows your **monitored topics** and can bring one up naturally
-- Knows **what you were just talking about** (last 8 conversation turns)
-- **Rotates** between three focus areas so it never opens with the same line twice
-- Has a 20-minute cooldown (up from 10) — less intrusive, more meaningful
-
-### 👁️ Instant Vision Acknowledgment — No More Silent Waiting
-When you ask JARVIS to look at your screen or camera, it no longer goes silent while processing. It immediately says something natural ("Looking at your screen now, sir" / "Ekrana bakıyorum efendim") while the capture runs. The actual analysis follows as the next response.
-
-### 📰 Parallel News Search — First Result Wins
-News queries now run Gemini Grounded Search and DuckDuckGo news simultaneously in two threads. Whichever delivers a valid result first is used; the other is silently discarded. A Gemini 503 error no longer delays results — the DDG fallback is already running in parallel.
-
----
-
-## 🗺️ Mark Roadmap
-
-| Mark | Focus |
-|---|---|
-| **XLVIII** | Instant interrupt · parallel news · two-phase briefing · exponential backoff · vision cooldown |
-| **XLIX** | Auto-start · clipboard intelligence · assistant customization |
-| **L** | Session memory · background monitoring · proactive 2.0 · instant vision · parallel news search |
-| **LI+** | Plugin system · email · quiz mode · calorie counter · calendar |
+| 🎨 Assistant Customization | Change the assistant name and your name from the UI |
 
 ---
 
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/FatihMakes/Mark-L.git
-cd Mark-L
+git clone https://github.com/flaviorssilva1981/jarvis-ai.git
+cd jarvis-ai
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python main.py
+cp config/api_keys.json.example config/api_keys.json
+# Edit config/api_keys.json — add your Gemini API key and settings
+./start.sh                  # macOS/Linux launcher with logging
+# or: python main.py
 ```
 
-> ⚠️ **Installation Note:** Some OS-specific dependencies are not bundled in `requirements.txt` to keep the repo lightweight. If you hit a `ModuleNotFoundError`, install the missing package with `pip install <module_name>`.
+> ⚠️ **Installation Note:** Some OS-specific dependencies are not bundled in `requirements.txt`. If you hit a `ModuleNotFoundError`, install the missing package with `pip install <module_name>`.
+
+### macOS permissions
+
+Grant **Terminal** (or your launcher app) access to **Mail**, **Calendar**, and **Automation** when macOS prompts you — required for inbox and calendar tools.
 
 ---
 
@@ -111,7 +83,7 @@ python main.py
 | Requirement | Details |
 | --- | --- |
 | **OS** | Windows 10/11, macOS, or Linux |
-| **Python** | 3.11 or 3.12 |
+| **Python** | 3.11 – 3.13 |
 | **Microphone** | Required for voice interaction |
 | **API Key** | Free Gemini API key (`config/api_keys.json`) |
 
@@ -120,38 +92,32 @@ python main.py
 ## 🗂️ Project Structure
 
 ```
-Mark L/
+jarvis-ai/
 ├── main.py                   # Core loop — Gemini Live session, audio I/O, tool dispatch
 ├── ui.py                     # PyQt6 HUD — waveform, log panel, interrupt button, camera feed
+├── start.sh                  # Launcher script (venv, logging, font scale)
 ├── setup.py                  # First-run configuration wizard
+├── assets/
+│   └── jarvis-youtube-thumbnail.png
 ├── actions/
-│   ├── web_search.py         # Gemini + DDG parallel search (news, research, price, compare)
-│   ├── screen_processor.py   # Screen capture & webcam vision via Gemini Live
-│   ├── background_monitor.py # User-configured topic watching — daily DDG check, no crypto
-│   ├── proactive.py          # Proactive 2.0 — time/context/rotation-aware check-ins
-│   ├── reminder.py           # OS-native scheduled notifications
-│   ├── system_monitor.py     # CPU / RAM / GPU / temperature telemetry
-│   ├── computer_settings.py  # Volume, brightness, WiFi, power
-│   ├── computer_control.py   # Keyboard shortcuts, mouse, window management
-│   ├── open_app.py           # Application launcher
-│   ├── browser_control.py    # Web browser control
-│   ├── file_controller.py    # File system operations
-│   ├── file_processor.py     # Document reading and summarization
-│   ├── send_message.py       # Messaging integration
-│   ├── weather_report.py     # Live weather data
-│   ├── flight_finder.py      # Flight search
-│   ├── youtube_video.py      # YouTube playback control
-│   ├── game_updater.py       # Game update management (Steam / Epic)
-│   ├── code_helper.py        # Code review and generation
-│   ├── dev_agent.py          # Developer task agent
-│   └── desktop.py            # Desktop and taskbar control
+│   ├── web_search.py         # Gemini + DDG parallel search
+│   ├── calendar_events.py    # macOS Calendar.app integration
+│   ├── mail_inbox.py         # macOS Mail.app inbox reader
+│   ├── weather_report.py     # Open-Meteo weather
+│   ├── screen_processor.py   # Screen capture & webcam vision
+│   ├── background_monitor.py # Topic watching — daily DDG check
+│   ├── proactive.py          # Proactive check-ins
+│   ├── browser_control.py    # Browser + Gmail compose
+│   ├── dev_agent.py          # DevOps / automation agent
+│   └── ...                   # reminders, system monitor, code helper, etc.
 ├── memory/
-│   ├── memory_manager.py     # Load/save long_term.json — sessions, monitors, identity
-│   └── long_term.json        # Persistent store: identity, preferences, projects, sessions, monitors
+│   ├── memory_manager.py     # Load/save long_term.json
+│   └── long_term.json        # Persistent store (gitignored)
 ├── core/
 │   └── prompt.txt            # Assistant personality and tool-routing rules
 └── config/
-    └── api_keys.json         # API key, OS setting, assistant name, user name
+    ├── api_keys.json.example # Template — copy to api_keys.json
+    └── api_keys.json         # Your API key and settings (gitignored)
 ```
 
 ---
@@ -163,12 +129,14 @@ Licensed under **[Creative Commons BY-NC 4.0](https://creativecommons.org/licens
 
 ---
 
-## 👤 Connect with the Creator
+## 👤 Connect
 
-Engineered by a developer building a real-world JARVIS-style assistant.
-⭐ **Star the repository to support the journey to Mark 100.**
+### Flavio Silva
 
 | Platform | Link |
 | --- | --- |
-| YouTube | [@FatihMakes](https://www.youtube.com/@FatihMakes) |
-| Instagram | [@fatihmakes](https://www.instagram.com/fatihmakes) |
+| GitHub | [flaviorssilva1981](https://github.com/flaviorssilva1981) |
+| YouTube | [JARVIS demo video](https://www.youtube.com/watch?v=VaxTmoVI4UU) |
+| Repo | [jarvis-ai](https://github.com/flaviorssilva1981/jarvis-ai) |
+
+⭐ **Star the repo** if you find JARVIS useful.
