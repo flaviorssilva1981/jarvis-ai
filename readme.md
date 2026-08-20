@@ -14,7 +14,7 @@ A real-time voice AI that can hear, see, understand, and control your computer �
 
 JARVIS is a cross-platform personal AI assistant with a futuristic HUD UI. It remembers context across sessions, delivers morning briefings, and responds by voice or text. On macOS, it includes real **Calendar.app**, **Mail.app**, and **Open-Meteo weather** integrations — no hallucinated calendar or inbox data.
 
-Use it for daily briefings, DevOps questions, CI/CD pipeline help, automation tasks, and hands-free computer control.
+Use it for daily briefings, DevOps questions, CI/CD pipeline help, automation tasks, hands-free computer control, and **voice-driven Google Slides presentations**.
 
 ---
 
@@ -48,11 +48,31 @@ Use it for daily briefings, DevOps questions, CI/CD pipeline help, automation ta
 | 🌐 Browser Control | Open URLs, navigate tabs, compose email in Gmail |
 | 📨 Send Message | Compose and send messages through WhatsApp, Telegram, and more |
 | 🎬 YouTube Control | Search, play, and control YouTube playback by voice |
+| 📊 Google Slides Presenter | Present Google Slides in Chrome — narrate each slide, next/previous, jump to topic (e.g. SLO) |
 | 🖱️ Desktop Control | Taskbar, window management, and desktop-level operations |
 | 📱 Remote Dashboard | Control the assistant from your phone via QR code pairing |
 | ⚡ Auto-Start on Boot | Registers with the OS startup system |
 | 📋 Clipboard Intelligence | Copy any text → floating panel with Translate / Summarise / Explain / Fix |
 | 🎨 Assistant Customization | Change the assistant name and your name from the UI |
+
+---
+
+## 📊 Google Slides Presenter
+
+Present decks from **Google Drive in Chrome** — no local PowerPoint required.
+
+| Voice command | What JARVIS does |
+|---|---|
+| *"Present my Google Slides: [URL]"* | Opens `/present` in Chrome, narrates each slide, advances automatically |
+| *"Next slide"* / *"Previous slide"* | Moves forward or back in the slideshow |
+| *"Go to the slide about SLO"* | Finds and jumps to a slide by topic, then explains it |
+| *"Go to slide 5"* | Jumps to a specific slide number |
+| *"Explain this slide"* | Narrates the current slide without advancing |
+| *"Stop the presentation"* | Ends the slideshow |
+
+**Requirements:** Google account logged in to Chrome. On macOS, grant **Terminal** access to **Screen Recording** (slide capture) and **Accessibility** (arrow keys for slide navigation).
+
+**Optional:** Export the deck as `.pptx` for faster topic search when jumping to subjects like DevOps or SLO.
 
 ---
 
@@ -74,7 +94,7 @@ cp config/api_keys.json.example config/api_keys.json
 
 ### macOS permissions
 
-Grant **Terminal** (or your launcher app) access to **Mail**, **Calendar**, and **Automation** when macOS prompts you — required for inbox and calendar tools.
+Grant **Terminal** (or your launcher app) access to **Mail**, **Calendar**, **Automation**, **Screen Recording**, and **Accessibility** when macOS prompts you — required for inbox, calendar, screen vision, and Google Slides control.
 
 ---
 
@@ -108,6 +128,7 @@ jarvis-ai/
 │   ├── background_monitor.py # Topic watching — daily DDG check
 │   ├── proactive.py          # Proactive check-ins
 │   ├── browser_control.py    # Browser + Gmail compose
+│   ├── google_slides_present.py  # Google Slides presenter (Chrome)
 │   ├── dev_agent.py          # DevOps / automation agent
 │   └── ...                   # reminders, system monitor, code helper, etc.
 ├── memory/
