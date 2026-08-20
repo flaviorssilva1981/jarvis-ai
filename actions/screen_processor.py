@@ -133,6 +133,20 @@ def _cv2_backend() -> int:
     return cv2.CAP_ANY
 
 
+def _camera_error_hint(err: Exception | str = "") -> str:
+    msg = str(err).lower()
+    os_name = _get_os()
+    if os_name == "mac" or sys.platform == "darwin":
+        return (
+            "On macOS, grant Camera access to the app that launches JARVIS "
+            "(Terminal or iTerm → System Settings → Privacy & Security → Camera), "
+            "then fully quit and reopen that terminal before trying again."
+        )
+    if "not authorized" in msg or "permission" in msg:
+        return "Check system privacy settings and allow camera access for this application."
+    return ""
+
+
 def _probe_camera(index: int, backend: int, warmup: int = 5) -> bool:
 
     if not _CV2:
@@ -147,7 +161,8 @@ def _probe_camera(index: int, backend: int, warmup: int = 5) -> bool:
     cap.release()
     if not ret or frame is None:
         return False
-    return bool(np.mean(frame) > 8)
+    # Accept any non-empty frame — brightness check rejected valid cameras in low light.
+    return frame.size > 0
 
 
 def _detect_camera_index() -> int:
@@ -173,36 +188,55 @@ def _get_camera_index() -> int:
     return _detect_camera_index()
 
 
+def _open_camera(index: int, backend: int, retries: int = 3):
+    """Open VideoCapture with short retries — macOS AVFoundation needs time to release."""
+    last_err = ""
+    for attempt in range(retries):
+        cap = cv2.VideoCapture(index, backend)
+        if cap.isOpened():
+            return cap
+        last_err = f"index {index} backend {backend}"
+        cap.release()
+        if attempt + 1 < retries:
+            time.sleep(0.45)
+    hint = _camera_error_hint("")
+    raise RuntimeError(
+        f"Camera {last_err} could not be opened. {hint}".strip()
+    )
+
+
 def _capture_camera() -> tuple[bytes, str]:
     if not _CV2:
         raise RuntimeError("OpenCV (cv2) is not installed. Run: pip install opencv-python")
 
     index   = _get_camera_index()
     backend = _cv2_backend()
-    cap     = cv2.VideoCapture(index, backend)
+    cap     = _open_camera(index, backend)
 
-    if not cap.isOpened():
-        raise RuntimeError(f"Camera index {index} could not be opened.")
+    try:
+        for _ in range(10):
+            cap.read()
 
-    for _ in range(10):
-        cap.read()
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            raise RuntimeError(
+                f"Camera index {index} returned no frame. {_camera_error_hint('')}".strip()
+            )
 
-    ret, frame = cap.read()
-    cap.release()
+        if _PIL:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img = PIL.Image.fromarray(rgb)
+            img.thumbnail((_IMG_MAX_W, _IMG_MAX_H), PIL.Image.BILINEAR)
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=_JPEG_Q)
+            return buf.getvalue(), "image/jpeg"
 
-    if not ret or frame is None:
-        raise RuntimeError("Camera returned no frame.")
-
-    if _PIL:
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        img = PIL.Image.fromarray(rgb)
-        img.thumbnail((_IMG_MAX_W, _IMG_MAX_H), PIL.Image.BILINEAR)
-        buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=_JPEG_Q)
-        return buf.getvalue(), "image/jpeg"
-
-    _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_Q])
-    return buf.tobytes(), "image/jpeg"
+        _, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, _JPEG_Q])
+        return buf.tobytes(), "image/jpeg"
+    finally:
+        cap.release()
+        # AVFoundation holds the device briefly after release — avoid immediate re-open races.
+        time.sleep(0.35)
 
 class _VisionSession:
     def __init__(self):

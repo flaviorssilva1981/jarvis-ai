@@ -684,9 +684,19 @@ class JarvisLive:
         elif not self.ui.muted:
             self.ui.set_state("LISTENING")
 
+    def _reset_vision_state(self, *, stop_cam: bool = True) -> None:
+        """Clear vision locks so camera can be retried after errors or interrupt."""
+        self._pending_vision       = None
+        self._vision_cam_active    = False
+        self._vision_close_pending = False
+        self._vision_busy          = False
+        if stop_cam:
+            self.ui.stop_camera_stream()
+
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
+        self._reset_vision_state(stop_cam=True)
         with self._speaking_lock:
             self._is_speaking = False
         q = self.audio_in_queue
@@ -866,32 +876,43 @@ class JarvisLive:
                 if self._vision_busy or (_now - self._vision_last_time) < _cooldown:
                     _wait = max(0, _cooldown - (_now - self._vision_last_time))
                     print(f"[Vision] ⏳ Cooldown active ({_wait:.1f}s remaining) — ignoring duplicate call")
-                    result = "Vision is still processing the previous request. I will not call this again."
+                    if self._vision_busy:
+                        result = (
+                            "Vision is still processing the previous request. "
+                            "Wait a moment or say 'close camera' to reset."
+                        )
+                    else:
+                        result = f"Vision cooldown active ({_wait:.0f}s). Try again in a moment."
                 else:
                     self._vision_busy      = True
                     self._vision_last_time = _now
                     angle     = args.get("angle", "screen").lower()
                     user_text = args.get("text", "What do you see?")
-                    if angle == "camera":
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
-                        self.ui.start_camera_stream()
-                        self._vision_cam_active = True
-                        print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
-                        _stall = "camera"
-                    else:
-                        img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
-                        print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
-                        _stall = "screen"
-                    self._pending_vision = (img_b, mime_t, user_text, angle)
-                    result = (
-                        f"[VISION_ACTIVE] {_stall.capitalize()} captured. "
-                        f"Immediately say ONE short natural sentence in the user's own language, "
-                        f"telling them you are looking at their {_stall} right now. "
-                        f"Do NOT describe or guess content — the actual image arrives in the NEXT message."
-                    )
+                    try:
+                        if angle == "camera":
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_camera)
+                            self.ui.start_camera_stream()
+                            self._vision_cam_active = True
+                            print(f"[Vision] 📷 Camera: {len(img_b):,} bytes")
+                            _stall = "camera"
+                        else:
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
+                            print(f"[Vision] 🖥️  Screen: {len(img_b):,} bytes")
+                            _stall = "screen"
+                        self._pending_vision = (img_b, mime_t, user_text, angle)
+                        result = (
+                            f"[VISION_ACTIVE] {_stall.capitalize()} captured. "
+                            f"Immediately say ONE short natural sentence in the user's own language, "
+                            f"telling them you are looking at their {_stall} right now. "
+                            f"Do NOT describe or guess content — the actual image arrives in the NEXT message."
+                        )
+                    except Exception as cam_err:
+                        self._reset_vision_state(stop_cam=True)
+                        print(f"[Vision] ❌ Capture failed: {cam_err}")
+                        result = f"Camera/vision capture failed: {cam_err}"
 
             elif name == "close_camera":
-                self.ui.stop_camera_stream()
+                self._reset_vision_state(stop_cam=True)
                 result = "Camera closed."
 
             elif name == "computer_settings":
