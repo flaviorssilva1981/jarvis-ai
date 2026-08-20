@@ -59,6 +59,12 @@ from actions.background_monitor import (
 from actions.web_search        import _news as _fetch_news_sync
 from actions.calendar_events   import calendar_events
 from actions.mail_inbox        import mail_inbox
+from actions.google_slides_present import (
+    google_slides_present as slides_present_action,
+    stop_presentation,
+    parse_present_url,
+    get_state,
+)
 from memory.config_manager     import get_brief_enabled
 
 
@@ -292,6 +298,66 @@ TOOL_DECLARATIONS = [
             "kamerayı kapat, kapat, creepy, etc."
         ),
         "parameters": {"type": "OBJECT", "properties": {}, "required": []}
+    },
+    {
+        "name": "google_slides_present",
+        "description": (
+            "Present a Google Slides deck in Chrome like a human presenter. "
+            "Opens Google Slides present/fullscreen mode, captures each slide from the screen, "
+            "narrates it aloud with JARVIS voice, and advances automatically. "
+            "Use when the user asks to present, walk through, or explain Google Slides slide-by-slide. "
+            "Works with Google Slides URLs from Google Drive — no local PowerPoint needed. "
+            "Actions: start (requires url) | stop | next | previous | goto | explain | status. "
+            "Use goto with topic (e.g. SLO, DevOps) or slide_number to jump to a specific slide. "
+            "Use previous/back when user asks to go back a slide. Use explain to narrate the current slide. "
+            "User must be logged into Google in Chrome. macOS: grant Terminal Accessibility for slide keys."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "start | stop | next | previous | goto | explain | status (default: start)",
+                },
+                "topic": {
+                    "type": "STRING",
+                    "description": "Topic to find for goto action (e.g. SLO, Cloud Management, DevOps)",
+                },
+                "query": {
+                    "type": "STRING",
+                    "description": "Alias for topic on goto action",
+                },
+                "subject": {
+                    "type": "STRING",
+                    "description": "Alias for topic on goto action",
+                },
+                "slide_number": {
+                    "type": "INTEGER",
+                    "description": "Jump to this slide number (goto action)",
+                },
+                "pptx_path": {
+                    "type": "STRING",
+                    "description": "Optional local .pptx export for fast topic search (goto action)",
+                },
+                "explain_after": {
+                    "type": "BOOLEAN",
+                    "description": "After goto, narrate the slide (default true when topic is set)",
+                },
+                "url": {
+                    "type": "STRING",
+                    "description": "Google Slides URL (edit or present link from docs.google.com)",
+                },
+                "max_slides": {
+                    "type": "INTEGER",
+                    "description": "Maximum slides to present (default: 25, max: 50)",
+                },
+                "load_wait": {
+                    "type": "NUMBER",
+                    "description": "Seconds to wait after opening Chrome for slideshow to load (default: 8)",
+                },
+            },
+            "required": [],
+        }
     },
     {
         "name": "computer_settings",
@@ -639,6 +705,7 @@ class JarvisLive:
         self._vision_close_pending = False   # True after vision injected; next turn_complete closes camera
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
+        self._slides_task          = None    # asyncio.Task for Google Slides presentation loop
         self._interrupted          = False   # True while draining audio after user interrupt
         self._audio_stream         = None    # RawOutputStream — stopped on interrupt to flush playback
         self.ui.on_text_command   = self._on_text_command
@@ -692,6 +759,97 @@ class JarvisLive:
         self._vision_busy          = False
         if stop_cam:
             self.ui.stop_camera_stream()
+        stop_presentation()
+
+    async def _wait_for_narration(self, timeout: float = 120.0) -> None:
+        """Wait until JARVIS finishes speaking the current presentation slide."""
+        if self._turn_done_event:
+            try:
+                await asyncio.wait_for(self._turn_done_event.wait(), timeout=timeout)
+            except asyncio.TimeoutError:
+                pass
+        await asyncio.sleep(0.8)
+        deadline = time.monotonic() + 90.0
+        while time.monotonic() < deadline:
+            with self._speaking_lock:
+                if not self._is_speaking:
+                    break
+            await asyncio.sleep(0.15)
+
+    async def _present_slide_narration(
+        self, img_bytes: bytes, mime_type: str, slide_num: int
+    ) -> None:
+        if not self.session:
+            raise RuntimeError("No active Gemini session for presentation.")
+        import base64 as _b64
+        b64 = _b64.b64encode(img_bytes).decode("ascii")
+        prompt = (
+            f"[PRESENTATION] Slide {slide_num}. You are JARVIS presenting this slide "
+            "to a client audience. Speak aloud in 3-5 confident, natural sentences. "
+            "Cover the main title and key points visible on the slide. "
+            "No markdown, no bullet lists — conversational presenter tone only."
+        )
+        if self._turn_done_event:
+            self._turn_done_event.clear()
+        await self.session.send_client_content(
+            turns={"parts": [
+                {"inline_data": {"mime_type": mime_type, "data": b64}},
+                {"text": prompt},
+            ]},
+            turn_complete=True,
+        )
+        await self._wait_for_narration()
+
+    async def _run_google_slides(self, args: dict) -> None:
+        loop = asyncio.get_event_loop()
+        jarvis = self
+
+        def _capture():
+            return _capture_screen()
+
+        def _present_slide(img_bytes: bytes, mime_type: str, slide_num: int) -> None:
+            if not jarvis._loop:
+                raise RuntimeError("JARVIS event loop not ready.")
+            fut = asyncio.run_coroutine_threadsafe(
+                jarvis._present_slide_narration(img_bytes, mime_type, slide_num),
+                jarvis._loop,
+            )
+            fut.result(timeout=150)
+
+        def _wait_after_speech() -> None:
+            return  # narration wait is handled inside _present_slide
+
+        try:
+            result = await loop.run_in_executor(
+                None,
+                lambda: slides_present_action(
+                    parameters=args,
+                    player=self.ui,
+                    capture_fn=_capture,
+                    present_slide_fn=_present_slide,
+                    wait_after_speech_fn=_wait_after_speech,
+                ),
+            )
+            self.ui.write_log(f"SLIDES: {result}")
+            # Brief pause so PortAudio finishes before any follow-up speech
+            await asyncio.sleep(1.5)
+            await self._wait_for_narration(timeout=10.0)
+            if self.session:
+                with self._speaking_lock:
+                    still_speaking = self._is_speaking
+                if not still_speaking:
+                    await self.session.send_client_content(
+                        turns={"parts": [{"text": (
+                            f"[PRESENTATION_END] {result} "
+                            "Tell the user briefly that the presentation is complete."
+                        )}]},
+                        turn_complete=True,
+                    )
+        except Exception as e:
+            print(f"[SlidesPresent] ❌ {e}")
+            self.ui.write_log(f"SLIDES ERR: {e}")
+        finally:
+            self._slides_task = None
 
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
@@ -915,6 +1073,73 @@ class JarvisLive:
                 self._reset_vision_state(stop_cam=True)
                 result = "Camera closed."
 
+            elif name == "google_slides_present":
+                action = (args.get("action") or "start").lower().strip()
+                if action == "stop":
+                    stop_presentation()
+                    if self._slides_task and not self._slides_task.done():
+                        self._slides_task.cancel()
+                    result = "Presentation stopped."
+                elif action in ("next", "forward", "advance", "previous", "back", "prior", "last"):
+                    result = await loop.run_in_executor(
+                        None, lambda: slides_present_action(parameters=args, player=self.ui)
+                    )
+                elif action in ("goto", "go_to", "jump", "find"):
+                    def _capture():
+                        return _capture_screen()
+
+                    result = await loop.run_in_executor(
+                        None,
+                        lambda: slides_present_action(
+                            parameters=args,
+                            player=self.ui,
+                            capture_fn=_capture,
+                        ),
+                    )
+                    topic = (
+                        args.get("topic") or args.get("query") or args.get("subject") or ""
+                    ).strip()
+                    explain = args.get("explain_after")
+                    if explain is None:
+                        explain = bool(topic)
+                    if explain and result and "Could not find" not in result and "Provide" not in result:
+                        try:
+                            img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
+                            num = max(1, get_state().slide_num)
+                            await self._present_slide_narration(img_b, mime_t, num)
+                            result = f"{result} Explained slide {num}."
+                        except Exception as e:
+                            result = f"{result} (Explain failed: {e})"
+                elif action in ("explain", "narrate", "current"):
+                    try:
+                        img_b, mime_t = await loop.run_in_executor(None, _capture_screen)
+                        num = max(1, get_state().slide_num)
+                        await self._present_slide_narration(img_b, mime_t, num)
+                        result = f"Explained slide {num}."
+                    except Exception as e:
+                        result = f"Could not explain current slide: {e}"
+                elif action == "status":
+                    result = slides_present_action(parameters={"action": "status"}, player=self.ui)
+                else:
+                    url = (args.get("url") or "").strip()
+                    if not url:
+                        result = "Provide a Google Slides URL to start the presentation."
+                    else:
+                        try:
+                            present_url = parse_present_url(url)
+                        except ValueError as e:
+                            result = str(e)
+                        else:
+                            if self._slides_task and not self._slides_task.done():
+                                stop_presentation()
+                                await asyncio.sleep(0.5)
+                            self._slides_task = asyncio.create_task(self._run_google_slides(args))
+                            result = (
+                                f"[PRESENTATION_STARTED] Opening {present_url} in Chrome. "
+                                "Say ONE short sentence telling the user you are starting the "
+                                "Google Slides presentation. Slide narration runs automatically."
+                            )
+
             elif name == "computer_settings":
                 r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
@@ -1005,7 +1230,7 @@ class JarvisLive:
 
         _await_speech = name in (
             "web_search", "calendar_events", "mail_inbox", "weather_report",
-            "screen_process", "open_app",
+            "screen_process", "open_app", "google_slides_present",
         )
         if not self.ui.muted and not _await_speech:
             self.ui.set_state("LISTENING")
@@ -1219,11 +1444,25 @@ class JarvisLive:
 
                 try:
                     await asyncio.to_thread(stream.write, bytes(batch))
-                except (RuntimeError, asyncio.CancelledError):
-                    break   # executor shutting down — exit cleanly
+                except Exception as e:
+                    err_name = type(e).__name__
+                    if err_name == "PortAudioError" or "PortAudio" in str(e) or "-9986" in str(e):
+                        print(f"[JARVIS] ⚠️ PortAudio glitch — recovering: {e}")
+                        try:
+                            stream.stop()
+                            await asyncio.sleep(0.1)
+                            stream.start()
+                        except Exception as rec_err:
+                            print(f"[JARVIS] ⚠️ Audio recovery failed: {rec_err}")
+                            break
+                        continue
+                    if isinstance(e, (RuntimeError, asyncio.CancelledError)):
+                        break
+                    print(f"[JARVIS] ⚠️ Play write error: {e}")
+                    break
         except Exception as e:
             print(f"[JARVIS] ❌ Play: {e}")
-            raise
+            # Do not re-raise — keep recv/mic alive so JARVIS does not fully crash
         finally:
             self.set_speaking(False)
             self._audio_stream = None
