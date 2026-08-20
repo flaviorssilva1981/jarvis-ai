@@ -57,6 +57,8 @@ from actions.background_monitor import (
     add_monitor, remove_monitor, list_monitors, check_all as monitor_check_all,
 )
 from actions.web_search        import _news as _fetch_news_sync
+from actions.calendar_events   import calendar_events
+from actions.mail_inbox        import mail_inbox
 from memory.config_manager     import get_brief_enabled
 
 
@@ -149,12 +151,71 @@ TOOL_DECLARATIONS = [
         }
     },
     {
-        "name": "weather_report",
-        "description": "Gives the weather report to user",
+        "name": "mail_inbox",
+        "description": (
+            "Reads recent emails from the macOS Mail app inbox (Gmail must be synced to Mail.app). "
+            "ALWAYS use this when the user asks about inbox, emails received, unread mail, "
+            "or messages from the last few days. "
+            "Use subject_contains to fetch the body of a specific email. "
+            "NEVER refuse or guess — call this tool first. "
+            "Do NOT use browser_control or screen_process to read Gmail."
+        ),
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "city": {"type": "STRING", "description": "City name"}
+                "days": {
+                    "type": "INTEGER",
+                    "description": "How many days back to check (default: 3, max: 14)",
+                },
+                "subject_contains": {
+                    "type": "STRING",
+                    "description": "If set, find this email and return its body text (e.g. 'Cloudways')",
+                },
+                "open_browser": {
+                    "type": "BOOLEAN",
+                    "description": "Also open Gmail inbox in browser (default: false)",
+                },
+            },
+        },
+    },
+    {
+        "name": "calendar_events",
+        "description": (
+            "Reads the user's REAL calendar agenda from macOS Calendar.app (synced Google/work calendars). "
+            "ALWAYS use this for schedule, agenda, appointments, meetings, or 'what's on my calendar today'. "
+            "NEVER use browser_control or screen_process for calendar — that opens Chrome and hallucinates events. "
+            "Do NOT open a browser unless the user explicitly asks to see the calendar on screen."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "when": {
+                    "type": "STRING",
+                    "description": "today (default) | tomorrow | YYYY-MM-DD",
+                },
+                "open_browser": {
+                    "type": "BOOLEAN",
+                    "description": "Open Google Calendar in browser (default: false — read from Calendar.app instead)",
+                },
+            },
+        },
+    },
+    {
+        "name": "weather_report",
+        "description": (
+            "Returns a spoken weather forecast for a city (today + next days). "
+            "ALWAYS use for weather questions — do NOT only open a browser. "
+            "Read the tool result aloud to the user."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "city": {"type": "STRING", "description": "City name (e.g. São Paulo, Brazil)"},
+                "time": {"type": "STRING", "description": "today | next 3 days (default: today)"},
+                "open_browser": {
+                    "type": "BOOLEAN",
+                    "description": "Also open Google weather in browser (default: false)",
+                },
             },
             "required": ["city"]
         }
@@ -209,6 +270,7 @@ TOOL_DECLARATIONS = [
             "Captures the screen or webcam image and lets you analyze it. "
             "MUST be called when user asks what is on screen, what you see, "
             "look at camera, analyze my screen, etc. "
+            "Do NOT use for calendar/agenda — use calendar_events instead (screen vision hallucinates events). "
             "You have NO visual ability without this tool. "
             "After the image is captured it is sent directly to you — describe what you see and answer the user's question. "
             "When using camera: the live view stays open until user says close it or calls close_camera."
@@ -254,6 +316,9 @@ TOOL_DECLARATIONS = [
         "description": (
             "Controls any web browser. Use for: opening websites, searching the web, "
             "clicking elements, filling forms, scrolling, screenshots, navigation, any web-based task. "
+            "For Gmail/email compose: ALWAYS use action compose_email with to, subject, body — "
+            "NEVER use go_to with gmail.com?subject=..., fill_form, or smart_click on Compose/Send. "
+            "compose_email opens Gmail compose pre-filled in the user's real browser; user clicks Send. "
             "Simple open/search requests launch the user's own browser normally (their real profile "
             "and logged-in accounts); interactive actions (click, type, fill_form...) attach an "
             "automation browser. "
@@ -263,9 +328,15 @@ TOOL_DECLARATIONS = [
         "parameters": {
             "type": "OBJECT",
             "properties": {
-                "action":      {"type": "STRING", "description": "go_to | search | click | type | scroll | fill_form | smart_click | smart_type | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"},
+                "action":      {"type": "STRING", "description": "go_to | search | compose_email | click | type | scroll | fill_form | smart_click | smart_type | get_text | get_url | press | new_tab | close_tab | screenshot | back | forward | reload | switch | list_browsers | close | close_all"},
                 "browser":     {"type": "STRING", "description": "Target browser: chrome | edge | firefox | opera | operagx | brave | vivaldi | safari. Omit to use the currently active browser."},
                 "url":         {"type": "STRING", "description": "URL for go_to / new_tab action"},
+                "to":          {"type": "STRING", "description": "Recipient email for compose_email"},
+                "recipient":   {"type": "STRING", "description": "Alias for to (compose_email)"},
+                "subject":     {"type": "STRING", "description": "Email subject for compose_email"},
+                "body":        {"type": "STRING", "description": "Email body for compose_email"},
+                "message":     {"type": "STRING", "description": "Alias for body (compose_email)"},
+                "use_mailto":  {"type": "BOOLEAN", "description": "Use mailto: link instead of Gmail web compose (default: false)"},
                 "query":       {"type": "STRING", "description": "Search query for search action"},
                 "engine":      {"type": "STRING", "description": "Search engine: google | bing | duckduckgo | yandex (default: google)"},
                 "selector":    {"type": "STRING", "description": "CSS selector for click/type"},
@@ -277,6 +348,7 @@ TOOL_DECLARATIONS = [
                 "path":        {"type": "STRING", "description": "Save path for screenshot"},
                 "incognito":   {"type": "BOOLEAN", "description": "Open in private/incognito mode"},
                 "clear_first": {"type": "BOOLEAN", "description": "Clear field before typing (default: true)"},
+                "fields":      {"type": "OBJECT", "description": "Field map for fill_form: {selector: value}"},
             },
             "required": ["action"]
         }
@@ -568,6 +640,7 @@ class JarvisLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._interrupted          = False   # True while draining audio after user interrupt
+        self._audio_stream         = None    # RawOutputStream — stopped on interrupt to flush playback
         self.ui.on_text_command   = self._on_text_command
         self.ui.on_remote_clicked = self._make_remote_key
         self.ui.on_interrupt      = self.interrupt
@@ -614,6 +687,8 @@ class JarvisLive:
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
         self._interrupted = True
+        with self._speaking_lock:
+            self._is_speaking = False
         q = self.audio_in_queue
         if q:
             drained = 0
@@ -623,9 +698,16 @@ class JarvisLive:
                     drained += 1
                 except Exception:
                     break
-            if drained:
-                print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
-        self.set_speaking(False)
+            print(f"[JARVIS] ✋ Interrupted — {drained} audio chunks discarded")
+        stream = self._audio_stream
+        if stream is not None:
+            try:
+                stream.stop()
+                stream.start()
+            except Exception as e:
+                print(f"[JARVIS] ⚠️ Audio stream reset failed: {e}")
+        if not self.ui.muted:
+            self.ui.set_state("LISTENING")
         if self._turn_done_event:
             self._turn_done_event.clear()
         self.ui.write_log("SYS: Interrupted — listening...")
@@ -732,9 +814,30 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: open_app(parameters=args, response=None, player=self.ui))
                 result = r or f"Opened {args.get('app_name')}."
 
+            elif name == "mail_inbox":
+                r = await loop.run_in_executor(
+                    None, lambda: mail_inbox(parameters=args, player=self.ui)
+                )
+                result = r or "Mail checked."
+                if r:
+                    _days = args.get("days") or 3
+                    self.ui.show_content(f"INBOX — last {_days} days", r)
+
+            elif name == "calendar_events":
+                r = await loop.run_in_executor(
+                    None, lambda: calendar_events(parameters=args, player=self.ui)
+                )
+                result = r or "Calendar checked."
+                if r:
+                    _when = args.get("when") or "today"
+                    self.ui.show_content(f"CALENDAR — {_when}", r)
+
             elif name == "weather_report":
                 r = await loop.run_in_executor(None, lambda: weather_action(parameters=args, player=self.ui))
                 result = r or "Weather delivered."
+                if r:
+                    _city = args.get("city") or "forecast"
+                    self.ui.show_content(f"WEATHER — {_city}", r)
 
             elif name == "browser_control":
                 r = await loop.run_in_executor(None, lambda: browser_control(parameters=args, player=self.ui))
@@ -879,7 +982,11 @@ class JarvisLive:
             traceback.print_exc()
             self.speak_error(name, e)
 
-        if not self.ui.muted:
+        _await_speech = name in (
+            "web_search", "calendar_events", "mail_inbox", "weather_report",
+            "screen_process", "open_app",
+        )
+        if not self.ui.muted and not _await_speech:
             self.ui.set_state("LISTENING")
 
         print(f"[JARVIS] 📤 {name} → {str(result)[:80]}")
@@ -961,13 +1068,14 @@ class JarvisLive:
                             if self._turn_done_event:
                                 self._turn_done_event.set()
 
-                            # If this turn_complete ends an interrupted response, clear the
-                            # flag and skip all further processing for that turn.
+                            # Interrupted turn: drop JARVIS partial speech only — keep user input.
                             if self._interrupted:
                                 self._interrupted = False
-                                in_buf  = []
+                                with self._speaking_lock:
+                                    self._is_speaking = False
+                                if not self.ui.muted:
+                                    self.ui.set_state("LISTENING")
                                 out_buf = []
-                                continue
 
                             full_in = " ".join(in_buf).strip()
                             if full_in:
@@ -1047,6 +1155,7 @@ class JarvisLive:
             dtype="int16",
             blocksize=CHUNK_SIZE,
         )
+        self._audio_stream = stream
         stream.start()
 
         try:
@@ -1066,17 +1175,26 @@ class JarvisLive:
                         self._turn_done_event.clear()
                     continue
 
-                self.set_speaking(True)
+                if self._interrupted:
+                    continue
 
-                # Batch all immediately-available chunks into one write to reduce
-                # thread-pool round-trips (was one asyncio.to_thread per 50ms slice).
-                # Cap at ~200 ms so interrupt() still stops audio within ~200 ms.
+                # Small batches (~50 ms) so interrupt stops playback quickly.
                 batch = bytearray(chunk)
-                while len(batch) < 9600:   # 9600 bytes ≈ 200 ms at 24 kHz / 16-bit mono
+                _SLICE = 2400
+                while len(batch) < _SLICE:
                     try:
                         batch.extend(self.audio_in_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
+
+                if self._interrupted:
+                    continue
+
+                with self._speaking_lock:
+                    if self._interrupted:
+                        continue
+                    self._is_speaking = True
+                self.ui.set_state("SPEAKING")
 
                 try:
                     await asyncio.to_thread(stream.write, bytes(batch))
@@ -1087,6 +1205,7 @@ class JarvisLive:
             raise
         finally:
             self.set_speaking(False)
+            self._audio_stream = None
             stream.stop()
             stream.close()
 

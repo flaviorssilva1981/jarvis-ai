@@ -6,6 +6,7 @@ pillow
 requests
 beautifulsoup4
 duckduckgo-search
+ddgs
 playwright
 pyautogui
 pyperclip

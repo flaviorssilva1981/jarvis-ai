@@ -1,0 +1,7 @@
+{
+    "gemini_api_key": "YOUR_GEMINI_API_KEY",
+    "os_system": "mac",
+    "ui_font_scale": 1.65,
+    "default_gmail_to": "you@example.com",
+    "calendar_names": ["your.email@company.com", "Calendar"]
+}

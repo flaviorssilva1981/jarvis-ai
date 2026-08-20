@@ -1,0 +1,8 @@
+.venv/
+config/api_keys.json
+config/certs/*.key
+memory/long_term.json
+logs/
+__pycache__/
+*.pyc
+.DS_Store

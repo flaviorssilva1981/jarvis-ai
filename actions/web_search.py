@@ -12,6 +12,29 @@ def _get_base_dir() -> Path:
 BASE_DIR        = _get_base_dir()
 API_CONFIG_PATH = BASE_DIR / "config" / "api_keys.json"
 
+# gemini-2.5-flash deprecated for new API keys — try newest first, then lite fallback
+_GEMINI_SEARCH_MODELS = ("gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash")
+
+
+def _gemini_generate(client, query: str, *, tools: bool = True):
+    """Call Gemini with grounded search; rotate models on 404."""
+    config = {"tools": [{"google_search": {}}]} if tools else None
+    last_err = None
+    for model in _GEMINI_SEARCH_MODELS:
+        try:
+            kwargs = {"model": model, "contents": query}
+            if config:
+                kwargs["config"] = config
+            return client.models.generate_content(**kwargs)
+        except Exception as e:
+            last_err = e
+            err = str(e)
+            if "404" in err or "NOT_FOUND" in err or "no longer available" in err.lower():
+                print(f"[WebSearch] ⚠️ Model {model} unavailable — trying next…")
+                continue
+            raise
+    raise last_err
+
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -22,11 +45,7 @@ def _gemini_search(query: str) -> str:
     from google import genai
 
     client   = genai.Client(api_key=_get_api_key())
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=query,
-        config={"tools": [{"google_search": {}}]},
-    )
+    response = _gemini_generate(client, query)
 
     text = ""
     for part in response.candidates[0].content.parts:
@@ -75,7 +94,8 @@ def _ddg_news(query: str, max_results: int = 8) -> list[dict]:
                 })
     except Exception as e:
         print(f"[WebSearch] ⚠️ DDG news() failed ({e}) — falling back to text search")
-        results = _ddg_search(query, max_results=max_results)
+        news_query = f"{query} news headlines today" if query else "world news headlines today"
+        results = _ddg_search(news_query, max_results=max_results)
     return results
 
 
@@ -123,10 +143,9 @@ def _gemini_headlines(n: int = 5) -> tuple[list[str], str]:
     from google import genai
 
     client = genai.Client(api_key=_get_api_key())
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=f"Current world news: {n} headlines. Numbered list, titles only.",
-        config={"tools": [{"google_search": {}}]},
+    response = _gemini_generate(
+        client,
+        f"Current world news: {n} headlines. Numbered list, titles only.",
     )
 
     raw = ""
@@ -164,51 +183,28 @@ def _search(query: str) -> str:
 
 def _news(query: str) -> str:
     """
-    Runs Gemini grounded search AND DDG news in parallel.
-    Returns whichever delivers a valid result first; cancels the other.
+    News headlines — Gemini grounded search first, DDG fallback.
+    Sequential (not parallel) to avoid DDG rate limits from twin requests.
     """
-    import threading
-
     gemini_query = f"latest news today: {query}" if query else "top world news today"
     ddg_query    = query if query else "world news today"
 
-    result_box  = [None]   # first valid result lands here
-    lock        = threading.Lock()
-    done_evt    = threading.Event()
-    failures    = [0]
+    try:
+        result = _gemini_search(gemini_query)
+        if result and len(result) > 60:
+            return result
+    except Exception as e:
+        print(f"[WebSearch] ⚠️ Gemini news failed ({e})")
 
-    def _store(r: str) -> None:
-        if r and len(r) > 60:
-            with lock:
-                if result_box[0] is None:
-                    result_box[0] = r
-            done_evt.set()
-        else:
-            with lock:
-                failures[0] += 1
-                if failures[0] >= 2:   # both failed — unblock caller
-                    done_evt.set()
+    try:
+        results = _ddg_news(ddg_query, max_results=8)
+        formatted = _format_news(ddg_query, results)
+        if results and len(formatted) > 60:
+            return formatted
+    except Exception as e:
+        print(f"[WebSearch] ⚠️ DDG news failed ({e})")
 
-    def _try_gemini():
-        try:
-            _store(_gemini_search(gemini_query))
-        except Exception as e:
-            print(f"[WebSearch] ⚠️ Gemini news failed ({e})")
-            _store("")
-
-    def _try_ddg():
-        try:
-            results = _ddg_news(ddg_query, max_results=8)
-            _store(_format_news(ddg_query, results))
-        except Exception as e:
-            print(f"[WebSearch] ⚠️ DDG news failed ({e})")
-            _store("")
-
-    threading.Thread(target=_try_gemini, daemon=True).start()
-    threading.Thread(target=_try_ddg,    daemon=True).start()
-
-    done_evt.wait(timeout=10.0)
-    return result_box[0] or f"No news found for: {query}"
+    return f"No news found for: {query}"
 
 
 def _research(query: str) -> str:

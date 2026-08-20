@@ -16,21 +16,32 @@ BASE_DIR         = get_base_dir()
 API_CONFIG_PATH  = BASE_DIR / "config" / "api_keys.json"
 PROJECTS_DIR     = Path.home() / "Desktop" / "JarvisProjects"
 MAX_FIX_ATTEMPTS = 5
-MODEL_PLANNER    = "gemini-2.5-flash"
-MODEL_WRITER     = "gemini-2.5-flash"
+_GEMINI_MODELS = ("gemini-3.6-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash")
 
 def _get_api_key() -> str:
     with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)["gemini_api_key"]
 
 
-def _get_model(model_name: str):
+def _get_model(model_name: str | None = None):
     from google import genai
     _c = genai.Client(api_key=_get_api_key())
+    models = (model_name,) if model_name else _GEMINI_MODELS
 
     class _W:
         def generate_content(self, contents):
-            return _c.models.generate_content(model=model_name, contents=contents)
+            last_err = None
+            for name in models:
+                try:
+                    return _c.models.generate_content(model=name, contents=contents)
+                except Exception as e:
+                    last_err = e
+                    err = str(e)
+                    if "404" in err or "NOT_FOUND" in err or "no longer available" in err.lower():
+                        print(f"[DevAgent] ⚠️ Model {name} unavailable — trying next…")
+                        continue
+                    raise
+            raise last_err
 
     return _W()
 
@@ -102,7 +113,7 @@ class RateLimitError(Exception):
 
 
 def _plan_project(description: str, language: str) -> dict:
-    model = _get_model(MODEL_PLANNER)
+    model = _get_model()
 
     prompt = f"""You are a senior software architect. Create a minimal, complete file plan for this project.
 
@@ -158,7 +169,7 @@ def _write_file(
     project_dir: Path,
     already_written: dict[str, str],
 ) -> str:
-    model = _get_model(MODEL_WRITER)
+    model = _get_model()
 
     file_path = file_info["path"]
     file_desc = file_info.get("description", "")
@@ -355,7 +366,7 @@ def _fix_files(
     entry_point: str,
 ) -> dict[str, str]:
 
-    model = _get_model(MODEL_PLANNER)
+    model = _get_model()
 
     error_file, error_line = _parse_traceback(error_output, list(file_codes.keys()))
     error_type = _classify_error(error_output)

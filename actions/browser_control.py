@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 from playwright.async_api import (
     async_playwright,
@@ -21,21 +24,140 @@ from playwright.async_api import (
 )
 _OS = platform.system()   # "Windows" | "Darwin" | "Linux"
 
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "api_keys.json"
+
+
+def _normalize_recipient(raw: str) -> str:
+    """Strip speech-to-text spaces and apply optional config correction."""
+    addr = re.sub(r"\s+", "", (raw or "").strip().lower())
+    addr = addr.replace("..", ".")
+    try:
+        cfg = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+        canonical = (cfg.get("default_gmail_to") or cfg.get("user_email") or "").strip().lower()
+        if canonical:
+            # Speech often splits or mis-hears: flavio.rs.silva → use saved address
+            local = addr.split("@")[0] if "@" in addr else addr
+            if local.replace(".", "") in canonical.replace(".", "") or "flavio" in local and "@gmail" in addr:
+                if addr != canonical and ("rs.silva" in addr or "rssilva" in local or local.startswith("flavio")):
+                    return canonical
+    except Exception:
+        pass
+    return addr
+
+
+def _gmail_compose_url(to: str = "", subject: str = "", body: str = "") -> str:
+    """Gmail web compose URL — opens in the user's logged-in browser profile."""
+    params: dict[str, str] = {}
+    if to.strip():
+        params["to"] = _normalize_recipient(to)
+    if subject.strip():
+        params["su"] = subject.strip()
+    if body.strip():
+        params["body"] = body.strip()
+    base = "https://mail.google.com/mail/?view=cm&fs=1"
+    if params:
+        return f"{base}&{urlencode(params)}"
+    return "https://mail.google.com/mail/u/0/#inbox?compose=new"
+
+
+def _mailto_url(to: str = "", subject: str = "", body: str = "") -> str:
+    """RFC mailto link for the system default mail client."""
+    addr = to.strip()
+    if not addr:
+        return "mailto:"
+    q: dict[str, str] = {}
+    if subject.strip():
+        q["subject"] = subject.strip()
+    if body.strip():
+        q["body"] = body.strip()
+    if q:
+        return f"mailto:{quote(addr, safe='@')}?{urlencode(q)}"
+    return f"mailto:{quote(addr, safe='@')}"
+
+
+def _rewrite_broken_email_url(url: str) -> str:
+    """
+    Fix common LLM mistakes:
+      - gmail.com/?subject=...&body=...  → proper Gmail compose URL
+      - https://mailto:...              → mailto:...
+    """
+    raw = url.strip()
+    lower = raw.lower()
+    if lower.startswith("https://mailto:") or lower.startswith("http://mailto:"):
+        return raw.split("://", 1)[1]
+
+    candidate = raw if "://" in raw else f"https://{raw}"
+    parsed = urlparse(candidate)
+    host = parsed.netloc.lower()
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+
+    has_compose = any(k in qs for k in ("subject", "body", "to", "su"))
+    if not has_compose:
+        return url
+
+    if "gmail" in host or host in ("mail.google.com", "google.com", ""):
+        def _first(key: str, *aliases: str) -> str:
+            for k in (key, *aliases):
+                if k in qs and qs[k]:
+                    return qs[k][0]
+            return ""
+
+        return _gmail_compose_url(
+            _first("to", "recipient"),
+            _first("subject", "su"),
+            _first("body", "message"),
+        )
+
+    return url
+
+
+def _coerce_form_fields(fields: Any) -> dict[str, str]:
+    """Accept dict or list-of-dicts from the LLM (avoids fill_form crashes)."""
+    if isinstance(fields, dict):
+        return {str(k): str(v) for k, v in fields.items()}
+    if isinstance(fields, list):
+        out: dict[str, str] = {}
+        for item in fields:
+            if not isinstance(item, dict):
+                continue
+            sel = (
+                item.get("selector") or item.get("name")
+                or item.get("field") or item.get("id")
+            )
+            val = item.get("value") or item.get("text") or item.get("content") or ""
+            if sel:
+                out[str(sel)] = str(val)
+        return out
+    return {}
+
+
 def _normalize_url(url: str) -> str:
     """
     Bare words like "instagram" → "https://instagram.com"
     Domains like "instagram.com" → "https://instagram.com"
-    Full URLs pass through unchanged.
+    mailto: / tel: pass through unchanged.
+    Broken gmail compose URLs are rewritten automatically.
     """
     url = url.strip()
     if not url:
         return "about:blank"
-    if "://" in url:
+
+    lower = url.lower()
+    if lower.startswith(("mailto:", "tel:", "sms:")):
         return url
-    # No dot at all → assume .com  (e.g. "instagram" → "instagram.com")
+
+    if "://" in url:
+        fixed = _rewrite_broken_email_url(url)
+        return fixed
+
+    url = _rewrite_broken_email_url(url)
+    if url.lower().startswith(("mailto:", "https://mail.google.com")):
+        return url
+
     if "." not in url:
         url = url + ".com"
-    return "https://" + url
+    normalized = "https://" + url
+    return _rewrite_broken_email_url(normalized)
 
 
 def _user_agent() -> str:
@@ -724,8 +846,11 @@ class _BrowserSession:
         page = await self._get_page()
         return page.url
 
-    async def fill_form(self, fields: dict) -> str:
+    async def fill_form(self, fields) -> str:
         page    = await self._get_page()
+        fields  = _coerce_form_fields(fields)
+        if not fields:
+            return "Form fill failed: no valid fields (expected dict or list of selector/value)."
         results = []
         for selector, value in fields.items():
             try:
@@ -953,6 +1078,36 @@ def browser_control(
     if action == "close":
         target = browser or _registry._active_browser
         result = _registry.close_one(target) if target else "No browser specified."
+        _log(player, result)
+        return result
+
+    # ── Email compose — always native browser (logged-in Gmail profile) ────────
+    if action in ("compose_email", "compose_gmail", "email_compose"):
+        to = _normalize_recipient(
+            params.get("to") or params.get("recipient")
+            or params.get("email") or ""
+        )
+        subject = (params.get("subject") or params.get("su") or "").strip()
+        body = (
+            params.get("body") or params.get("message")
+            or params.get("text") or ""
+        ).strip()
+        use_mailto = bool(params.get("use_mailto", False))
+
+        if use_mailto:
+            nav_url = _mailto_url(to, subject, body)
+            hint = "Default mail client opened — click Send there."
+        else:
+            nav_url = _gmail_compose_url(to, subject, body)
+            hint = (
+                "Gmail compose opened in your browser with fields pre-filled. "
+                "Review and click Send — automatic send is not supported."
+            )
+
+        result = _open_native(nav_url, browser)
+        if result.startswith("Opened"):
+            _registry.note_native_url(_normalize_url(nav_url))
+            result = f"{result} {hint}"
         _log(player, result)
         return result
 
