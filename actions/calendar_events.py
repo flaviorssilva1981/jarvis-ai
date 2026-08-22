@@ -25,7 +25,7 @@ _SKIP_CALENDAR_NAMES = frozenset({
 })
 
 _CALENDAR_QUERY_TIMEOUT = 90
-_DEFAULT_CALENDARS = ("flavio.silva@appnovation.com", "Calendar")
+_DEFAULT_CALENDARS = ("Calendar",)
 
 
 def _base_dir() -> Path:
