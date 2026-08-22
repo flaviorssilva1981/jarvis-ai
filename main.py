@@ -65,6 +65,8 @@ from actions.google_slides_present import (
     parse_present_url,
     get_state,
 )
+from actions.presentation_create import presentation_create
+from actions.google_drive import google_drive_files
 from memory.config_manager     import get_brief_enabled
 
 
@@ -354,6 +356,124 @@ TOOL_DECLARATIONS = [
                 "load_wait": {
                     "type": "NUMBER",
                     "description": "Seconds to wait after opening Chrome for slideshow to load (default: 8)",
+                },
+            },
+            "required": [],
+        }
+    },
+    {
+        "name": "presentation_create",
+        "description": (
+            "Create a professional local .pptx presentation (default). "
+            "Styled with corporate theme, logo, diagrams, and visuals. "
+            "Saved to ~/Documents/JARVIS Presentations/. "
+            "Call this tool silently — do NOT speak before or when calling it. "
+            "The system announces start, 30s progress, and completion."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "create | create_in_drive | blank | open_slides (default: create)",
+                },
+                "url": {
+                    "type": "STRING",
+                    "description": "Optional Google Slides edit URL; omit to create a new deck in Drive",
+                },
+                "blank_only": {
+                    "type": "BOOLEAN",
+                    "description": "For create_in_drive: only click Blank slide, do not use Slides AI",
+                },
+                "load_wait": {
+                    "type": "NUMBER",
+                    "description": "Seconds to wait after opening Chrome (default 10)",
+                },
+                "title": {
+                    "type": "STRING",
+                    "description": "Presentation title",
+                },
+                "topic": {
+                    "type": "STRING",
+                    "description": "Topic, outline, or brief describing what the deck should cover",
+                },
+                "outline": {
+                    "type": "STRING",
+                    "description": "Alias for topic",
+                },
+                "description": {
+                    "type": "STRING",
+                    "description": "Alias for topic",
+                },
+                "num_slides": {
+                    "type": "INTEGER",
+                    "description": "Number of content slides to generate (3-20, default 8)",
+                },
+                "audience": {
+                    "type": "STRING",
+                    "description": "Target audience e.g. client, engineering team",
+                },
+                "output_path": {
+                    "type": "STRING",
+                    "description": "Optional save path or folder for the .pptx file",
+                },
+                "open_after": {
+                    "type": "BOOLEAN",
+                    "description": "Open the .pptx after creation (default true)",
+                },
+                "open_google_slides": {
+                    "type": "BOOLEAN",
+                    "description": "Also open blank Google Slides in Chrome for import (default false)",
+                },
+            },
+            "required": [],
+        }
+    },
+    {
+        "name": "google_drive_files",
+        "description": (
+            "Search and open files in the user's Google Drive via Chrome (logged-in session). "
+            "Finds native Google Slides AND uploaded .pptx files (JARVIS local exports). "
+            "Use when user asks to find, search, or open a presentation in Google Drive. "
+            "Actions: search | open | open_url | recover (fix broken rtpof=true .pptx URLs) | open_local. "
+            "Uploaded .pptx files cannot open directly in docs.google.com — use open/recover to "
+            "convert via Open with Google Slides. "
+            "Returns [DRIVE_OPEN: ok|partial] with exact URL. NEVER use file_controller for Drive files."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "action": {
+                    "type": "STRING",
+                    "description": "search | open | open_url | recover | open_local (default: open)",
+                },
+                "query": {
+                    "type": "STRING",
+                    "description": "File name or search terms (e.g. 'Jarvis AI', 'Cloud Management')",
+                },
+                "name": {
+                    "type": "STRING",
+                    "description": "Alias for query — presentation or file name",
+                },
+                "title": {
+                    "type": "STRING",
+                    "description": "Alias for query",
+                },
+                "url": {
+                    "type": "STRING",
+                    "description": "Google Slides or Drive URL for open_url action",
+                },
+                "file_type": {
+                    "type": "STRING",
+                    "description": "slides_or_pptx | pptx | presentation | document | any (default: slides_or_pptx)",
+                },
+                "local_path": {
+                    "type": "STRING",
+                    "description": "Local .pptx path for open_local action",
+                },
+                "load_wait": {
+                    "type": "NUMBER",
+                    "description": "Seconds to wait for Drive search to load (default: 8)",
                 },
             },
             "required": [],
@@ -706,6 +826,7 @@ class JarvisLive:
         self._vision_last_time     = 0.0     # monotonic time of last screen_process call (cooldown guard)
         self._vision_busy          = False   # True while a vision capture/inject cycle is in flight
         self._slides_task          = None    # asyncio.Task for Google Slides presentation loop
+        self._presentation_task    = None    # asyncio.Task for local .pptx creation
         self._interrupted          = False   # True while draining audio after user interrupt
         self._audio_stream         = None    # RawOutputStream — stopped on interrupt to flush playback
         self.ui.on_text_command   = self._on_text_command
@@ -850,6 +971,113 @@ class JarvisLive:
             self.ui.write_log(f"SLIDES ERR: {e}")
         finally:
             self._slides_task = None
+
+    async def _run_presentation_create(self, args: dict) -> None:
+        """Background pptx creation — exactly 3 spoken updates: start, +30s, done."""
+        loop = asyncio.get_event_loop()
+        title = (args.get("title") or args.get("topic") or "Presentation").strip()[:80]
+        try:
+            # Wait until the tool-call turn finishes (model must stay silent on tool result).
+            if self._turn_done_event:
+                self._turn_done_event.clear()
+                try:
+                    await asyncio.wait_for(self._turn_done_event.wait(), timeout=12.0)
+                except asyncio.TimeoutError:
+                    pass
+            await asyncio.sleep(0.3)
+
+            if self.session:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": (
+                        f"[PRESENTATION_CREATING] Say EXACTLY ONE sentence, then stop: "
+                        f"'Starting the presentation \"{title}\" now, sir.' "
+                        f"Do NOT repeat or add anything else."
+                    )}]},
+                    turn_complete=True,
+                )
+                self.ui.write_log("SYS: Presentation start announcement sent.")
+                if self._turn_done_event:
+                    self._turn_done_event.clear()
+                    try:
+                        await asyncio.wait_for(self._turn_done_event.wait(), timeout=10.0)
+                    except asyncio.TimeoutError:
+                        pass
+
+            create_future = loop.run_in_executor(
+                None,
+                lambda: presentation_create(parameters=args, player=self.ui),
+            )
+
+            # 30s progress update — only if still building
+            try:
+                await asyncio.wait_for(asyncio.shield(create_future), timeout=30.0)
+            except asyncio.TimeoutError:
+                if self.session:
+                    await self.session.send_client_content(
+                        turns={"parts": [{"text": (
+                            "[PRESENTATION_PROGRESS] Say EXACTLY ONE sentence: "
+                            "the presentation is still being created, please wait a "
+                            "moment longer. Then stop — do not say anything else."
+                        )}]},
+                        turn_complete=True,
+                    )
+                    self.ui.write_log("SYS: Presentation 30s progress sent.")
+                    if self._turn_done_event:
+                        self._turn_done_event.clear()
+                        try:
+                            await asyncio.wait_for(self._turn_done_event.wait(), timeout=10.0)
+                        except asyncio.TimeoutError:
+                            pass
+
+            result = await create_future
+            self.ui.write_log(f"PRESENTATION: {str(result)[:120]}")
+
+            abs_path = ""
+            for line in str(result).splitlines():
+                if line.strip().startswith("Path:"):
+                    abs_path = line.strip().removeprefix("Path:").strip()
+                    break
+            if not abs_path:
+                m = re.search(r"Path:\s*(.+)", str(result))
+                abs_path = (m.group(1).strip() if m else "")
+
+            self.ui.show_content(
+                f"✅ READY — {title[:36]}",
+                f"PATH={abs_path}\n\n{str(result)[:900]}" if abs_path else str(result)[:1200],
+            )
+
+            if self.session and abs_path:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": (
+                        f"[PRESENTATION_DONE]\n"
+                        f"PATH={abs_path}\n\n"
+                        "Say EXACTLY ONE sentence: the presentation is finished and ready. "
+                        "Read PATH above word-for-word. Then stop."
+                    )}]},
+                    turn_complete=True,
+                )
+                self.ui.write_log(f"SYS: Presentation done — PATH={abs_path}")
+            elif self.session:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": (
+                        f"[PRESENTATION_DONE]\n{result}\n\n"
+                        "Say ONE sentence with the path from the tool result. Then stop."
+                    )}]},
+                    turn_complete=True,
+                )
+        except Exception as e:
+            print(f"[PresentationCreate] ❌ {e}")
+            self.ui.write_log(f"PRESENTATION ERR: {e}")
+            if self.session:
+                await self.session.send_client_content(
+                    turns={"parts": [{"text": (
+                        f"[PRESENTATION_FAILED] {e}\n"
+                        "Apologize briefly and say the presentation could not be created."
+                    )}]},
+                    turn_complete=True,
+                )
+        finally:
+            self._presentation_task = None
 
     def interrupt(self) -> None:
         """Stop JARVIS mid-speech: drain queued audio and open mic immediately."""
@@ -1140,6 +1368,36 @@ class JarvisLive:
                                 "Google Slides presentation. Slide narration runs automatically."
                             )
 
+            elif name == "presentation_create":
+                title = (
+                    args.get("title") or args.get("topic") or "Presentation"
+                ).strip()[:80]
+                num_slides = int(args.get("num_slides") or 6)
+                if self._presentation_task and not self._presentation_task.done():
+                    result = (
+                        "A presentation is already being created, sir. "
+                        "Please wait for it to finish."
+                    )
+                else:
+                    self.ui.show_content(
+                        f"CREATING — {title[:40]}",
+                        f"Building {num_slides}-slide professional presentation…",
+                    )
+                    self._presentation_task = asyncio.create_task(
+                        self._run_presentation_create(args)
+                    )
+                    result = (
+                        "[PRESENTATION_CREATING] SILENT — do NOT speak. "
+                        "Building in background. The system will announce start, "
+                        "30s progress, and completion. Wait for those tags only."
+                    )
+
+            elif name == "google_drive_files":
+                r = await loop.run_in_executor(
+                    None, lambda: google_drive_files(parameters=args, player=self.ui)
+                )
+                result = r or "Google Drive action completed."
+
             elif name == "computer_settings":
                 r = await loop.run_in_executor(None, lambda: computer_settings(parameters=args, response=None, player=self.ui))
                 result = r or "Done."
@@ -1231,6 +1489,7 @@ class JarvisLive:
         _await_speech = name in (
             "web_search", "calendar_events", "mail_inbox", "weather_report",
             "screen_process", "open_app", "google_slides_present",
+            "presentation_create",
         )
         if not self.ui.muted and not _await_speech:
             self.ui.set_state("LISTENING")
@@ -1638,6 +1897,8 @@ class JarvisLive:
                 speaking = self._is_speaking
             if speaking or (time.monotonic() - self._last_user_speech) < 10:
                 continue
+            if self._presentation_task and not self._presentation_task.done():
+                continue
             try:
                 await self.session.send_client_content(
                     turns={"parts": [{"text": alert}]},
@@ -1657,7 +1918,8 @@ class JarvisLive:
                 with self._speaking_lock:
                     speaking = self._is_speaking
                 recent_speech = (time.monotonic() - self._last_user_speech) < 30
-                if not speaking and not recent_speech:
+                pres_busy = self._presentation_task and not self._presentation_task.done()
+                if not speaking and not recent_speech and not pres_busy:
                     try:
                         alerts = await asyncio.to_thread(monitor_check_all)
                         memory = load_memory()
@@ -1696,6 +1958,9 @@ class JarvisLive:
             with self._speaking_lock:
                 speaking = self._is_speaking
             if speaking:
+                continue
+
+            if self._presentation_task and not self._presentation_task.done():
                 continue
 
             if not self._proactive.should_trigger(self._last_user_speech):

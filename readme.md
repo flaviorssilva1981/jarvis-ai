@@ -49,6 +49,7 @@ Use it for daily briefings, DevOps questions, CI/CD pipeline help, automation ta
 | 📨 Send Message | Compose and send messages through WhatsApp, Telegram, and more |
 | 🎬 YouTube Control | Search, play, and control YouTube playback by voice |
 | 📊 Google Slides Presenter | Present Google Slides in Chrome — narrate each slide, next/previous, jump to topic (e.g. SLO) |
+| 📝 Presentation Creator | Create a `.pptx` deck from a topic/outline (Gemini) — upload to Google Drive via Import slides |
 | 🖱️ Desktop Control | Taskbar, window management, and desktop-level operations |
 | 📱 Remote Dashboard | Control the assistant from your phone via QR code pairing |
 | ⚡ Auto-Start on Boot | Registers with the OS startup system |
@@ -73,6 +74,23 @@ Present decks from **Google Drive in Chrome** — no local PowerPoint required.
 **Requirements:** Google account logged in to Chrome. On macOS, grant **Terminal** access to **Screen Recording** (slide capture) and **Accessibility** (arrow keys for slide navigation).
 
 **Optional:** Export the deck as `.pptx` for faster topic search when jumping to subjects like DevOps or SLO.
+
+---
+
+## 📝 Presentation Creator
+
+Create **professional local `.pptx` decks** by voice — you upload to Google Drive manually when ready.
+
+| Voice command | What JARVIS does |
+|---|---|
+| *"Create a presentation about JARVIS and your technology"* | Professional `.pptx` with theme, logo, diagrams, visuals → `~/Documents/JARVIS Presentations/` |
+| *"Create 6 slides about Cloud Management"* | Same — corporate styling, not plain text bullets |
+
+**Design includes:** JARVIS dark/cyan theme, logo, accent shapes, architecture diagram slides, optional AI illustrations (Imagen), closing slide.
+
+**Upload to Google Drive:** Drag the `.pptx` to Drive → **Open with → Google Slides** (converts to native Slides).
+
+**Note:** Google Drive auto-create is disabled — browser automation was unreliable. Local create is the supported path.
 
 ---
 
@@ -129,6 +147,8 @@ jarvis-ai/
 │   ├── proactive.py          # Proactive check-ins
 │   ├── browser_control.py    # Browser + Gmail compose
 │   ├── google_slides_present.py  # Google Slides presenter (Chrome)
+│   ├── presentation_create.py  # Generate .pptx decks from a topic
+│   ├── google_drive.py         # Search/open files in Google Drive
 │   ├── dev_agent.py          # DevOps / automation agent
 │   └── ...                   # reminders, system monitor, code helper, etc.
 ├── memory/
