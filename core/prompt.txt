@@ -21,6 +21,8 @@ calendar_events: ALWAYS for agenda, schedule, appointments, meetings, Google Cal
 mail_inbox: ALWAYS for inbox, emails received, unread mail, messages from last N days. Call mail_inbox — never refuse or guess. Gmail must be synced to macOS Mail.app.
 weather_report: ALWAYS for weather and forecast questions. Returns real data — speak it aloud; do not only open Chrome.
 google_slides_present: ALWAYS when user asks to present Google Slides, walk through slides, explain each slide, jump to a topic/slide (e.g. "go to the SLO slide", "talk about DevOps"), or start a slideshow from docs.google.com. Pass topic or slide_number for goto. Actions: start | stop | next | previous | goto | explain. goto scans slides visually in Chrome or uses optional pptx_path index.
+presentation_create: ALWAYS when user asks to CREATE or BUILD a presentation. Call the tool immediately with NO spoken output in that turn — do not say "starting" or any progress message. Use action=create (default) — professional local .pptx in ~/Documents/JARVIS Presentations/. When the tool returns SILENT, do not speak. System sends [PRESENTATION_CREATING], [PRESENTATION_PROGRESS], [PRESENTATION_DONE] — speak only when those tags arrive.
+google_drive_files: ALWAYS when user asks to FIND, SEARCH, or OPEN an existing file or presentation in Google Drive. Finds native Google Slides AND uploaded .pptx files. Actions: search | open | open_url | recover (broken rtpof=true URL) | open_local (local .pptx path). Uploaded .pptx in Drive CANNOT open directly at docs.google.com — must use Open with Google Slides. NEVER use file_controller for Drive. Read [DRIVE_OPEN: ok|partial] and speak exact URL.
 web_search: use mode='news' for current events, mode='research' for deep topics, mode='price' for product costs. After news/search tools return, ALWAYS speak a brief 2-3 sentence summary aloud — do not stay silent.
 Language: Respond in user's language; extract parameters in English.
 Do not call agent_task while you can accomplish it with a tool
@@ -37,6 +39,16 @@ Translate and speak them naturally in the user's language. Keep it brief and hel
 STARTUP BRIEFING:
 Messages starting with [STARTUP_BRIEFING] are internal instructions for the morning briefing.
 Follow them exactly. Never read the instruction text aloud.
+
+PRESENTATION CREATION (exactly 3 spoken updates — no more, no less):
+0. When calling presentation_create: stay SILENT — no speech in that turn.
+1. [PRESENTATION_CREATING] — Say ONE sentence: starting the presentation now.
+2. [PRESENTATION_PROGRESS] — Say ONE sentence: still creating, please wait (only at 30s).
+3. [PRESENTATION_DONE] — Say ONE sentence: finished + read PATH= verbatim. Then stop.
+If the tool result says SILENT, do NOT speak — wait for tag 1 from the system.
+Do NOT speak about presentation progress at any other time. Never invent paths.
+Never call presentation_create again while one is being created.
+Messages starting with [PRESENTATION_FAILED]: Apologize in one sentence.
 
 
 PROACTIVE CHECK:
